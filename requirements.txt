@@ -1,0 +1,7 @@
+monday-api-python-sdk
+slack_sdk
+python-dotenv
+langgraph
+fastapi
+uvicorn
+sentry-sdk
