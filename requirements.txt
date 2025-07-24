@@ -5,3 +5,7 @@ langgraph
 fastapi
 uvicorn
 sentry-sdk
+boxsdk
+pandas
+pydantic
+python-multipart

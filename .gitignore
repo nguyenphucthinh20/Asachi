@@ -1,3 +1,8 @@
 .env
 __pycache__
 example_sdk_all.ipynb
+pandasai.log
+0__config.json
+box_oauth_fastapi.py
+file.txt
+output.xlsx
