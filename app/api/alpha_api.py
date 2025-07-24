@@ -37,20 +37,28 @@ async def process_mention(event_data: dict, question: str) -> None:
 async def slack_events_endpoint(req: Request, background_tasks: BackgroundTasks):
     body = await req.json()
 
+    print(f"++++++++++++++Received Slack event: {body}")
+
     if body.get("type") == "url_verification":
         return JSONResponse(content={"challenge": body.get("challenge")})
 
-    if body.get("type") == "event_callback" and body.get("event", {}).get("type") == "app_mention":
-        
+    if body.get("type") == "event_callback":
+        event = body.get("event", {})
+
+        # Check for retry header
         if 'x-slack-retry-num' in req.headers:
             print(f"Detected a retry from Slack (reason: {req.headers.get('x-slack-retry-reason')}). Ignoring.")
             return JSONResponse(content={"status": "ok, retry ignored"})
 
-        event = body.get("event", {})
+        user_id = event.get("user")
         SLACK_BOT_USER_ID = os.getenv("SLACK_BOT_USER_ID")
-        mention = f"<@{SLACK_BOT_USER_ID}>"
-        question = event.get("text", "").replace(mention, "").strip()
-        
-        background_tasks.add_task(process_mention, body, question)
+        if user_id == SLACK_BOT_USER_ID:
+            print(f"Ignoring message from self (bot user ID: {SLACK_BOT_USER_ID})")
+            return JSONResponse(content={"status": "ignored self-message"})
+
+        if event.get("type") == "app_mention":
+            mention = f"<@{SLACK_BOT_USER_ID}>"
+            question = event.get("text", "").replace(mention, "").strip()
+            background_tasks.add_task(process_mention, body, question)
 
     return JSONResponse(content={"status": "ok"})

@@ -1,4 +1,4 @@
-from openai import AzureOpenAI
+import google as genai
 from typing import List, Dict, Any, Optional
 import json
 from app.core.config import Config
@@ -7,56 +7,42 @@ from app.core.exceptions import ProviderException, ValidationException
 from app.core.logger import Logger
 
 
-class AzureOpenAIClient(BaseAIProvider):
-    """Azure OpenAI client for text generation and analysis"""
+class GeminiClient(BaseAIProvider):
+    """Google Gemini client for text generation and analysis"""
     
-    def __init__(self, api_key: Optional[str] = None, endpoint: Optional[str] = None, 
-                 api_version: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         self.logger = Logger.get_logger(self.__class__.__name__)
         
-        self.api_key = api_key or Config.AZURE_OPENAI_API_KEY
-        self.endpoint = endpoint or Config.AZURE_OPENAI_ENDPOINT
-        self.api_version = api_version or Config.AZURE_OPENAI_API_VERSION
-        self.deployment_name = Config.AZURE_OPENAI_DEPLOYMENT_NAME
+        self.api_key = api_key or Config.GEMINI_API_KEY
+        self.model_name = model_name or Config.GEMINI_MODEL_NAME or "gemini-1.5-flash"
         
         self._validate_configuration()
         self.client = None
+        self.model = None
         self.initialize()
     
     def _validate_configuration(self) -> None:
-        """Validate Azure OpenAI configuration"""
-        required_configs = {
-            'api_key': self.api_key,
-            'endpoint': self.endpoint,
-            'api_version': self.api_version,
-            'deployment_name': self.deployment_name
-        }
-        
-        for config_name, config_value in required_configs.items():
-            if not config_value:
-                raise ValidationException(f"Azure OpenAI {config_name} is required")
+        """Validate Gemini configuration"""
+        if not self.api_key:
+            raise ValidationException("Gemini API key is required")
     
     def initialize(self) -> None:
-        """Initialize the Azure OpenAI client"""
+        """Initialize the Gemini client"""
         try:
-            self.client = AzureOpenAI(
-                api_key=self.api_key,
-                api_version=self.api_version,
-                azure_endpoint=self.endpoint
-            )
-            self.logger.info("Azure OpenAI client initialized successfully")
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel(self.model_name)
+            self.logger.info(f"Gemini client initialized successfully with model: {self.model_name}")
         except Exception as e:
-            raise ProviderException(f"Failed to initialize Azure OpenAI client: {str(e)}")
+            raise ProviderException(f"Failed to initialize Gemini client: {str(e)}")
     
     def is_healthy(self) -> bool:
-        """Check if the Azure OpenAI client is healthy"""
+        """Check if the Gemini client is healthy"""
         try:
+            if not self.model:
+                return False
+            
             # Simple health check by making a minimal request
-            response = self.client.chat.completions.create(
-                model=self.deployment_name,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=1
-            )
+            response = self.model.generate_content("test")
             return response is not None
         except Exception as e:
             self.logger.error(f"Health check failed: {str(e)}")
@@ -64,28 +50,36 @@ class AzureOpenAIClient(BaseAIProvider):
     
     def cleanup(self) -> None:
         """Cleanup resources"""
-        self.client = None
-        self.logger.info("Azure OpenAI client cleaned up")
+        self.model = None
+        self.logger.info("Gemini client cleaned up")
     
     def generate_text(self, prompt: str, max_tokens: int = Config.DEFAULT_MAX_TOKENS, 
                      temperature: float = Config.DEFAULT_TEMPERATURE, 
                      system_message: Optional[str] = None, **kwargs) -> str:
         """Generate text based on prompt"""
-        try:           
-            messages = []
-            if system_message:
-                messages.append({"role": "system", "content": system_message})
-            messages.append({"role": "user", "content": prompt})
+        try:
             
-            response = self.client.chat.completions.create(
-                model=self.deployment_name,
-                messages=messages,
-                max_tokens=max_tokens,
+            # Combine system message with prompt if provided
+            full_prompt = prompt
+            if system_message:
+                full_prompt = f"System: {system_message}\n\nUser: {prompt}"
+            
+            # Configure generation parameters
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
                 temperature=temperature,
                 **kwargs
             )
             
-            return response.choices[0].message.content.strip()
+            response = self.model.generate_content(
+                full_prompt,
+                generation_config=generation_config
+            )
+            
+            if response.text:
+                return response.text.strip()
+            else:
+                raise ProviderException("Empty response from Gemini")
             
         except Exception as e:
             self.logger.error(f"Text generation failed: {str(e)}")
@@ -95,7 +89,7 @@ class AzureOpenAIClient(BaseAIProvider):
                          system_instructions: Optional[str] = None,
                          response_format: Optional[str] = None) -> str:
         """Generate a response based on user message and context"""
-        try:          
+        try:
             prompt = self._build_response_prompt(user_message, context or {}, response_format)
             
             system_message = system_instructions or "You are a helpful AI assistant."
@@ -114,7 +108,7 @@ class AzureOpenAIClient(BaseAIProvider):
     def generate_structured_response(self, prompt: str, schema: Dict[str, Any],
                                    system_message: Optional[str] = None) -> Dict[str, Any]:
         """Generate a structured response based on a schema"""
-        try:
+        try: 
             structured_prompt = f"""
             {prompt}
             
@@ -160,3 +154,12 @@ class AzureOpenAIClient(BaseAIProvider):
         
         Generate a helpful and appropriate response based on the user message and available context.
         """
+    
+    def _get_default_analysis(self) -> Dict[str, Any]:
+        """Get default analysis when parsing fails"""
+        return {
+            "intent": "general_question",
+            "entities": {},
+            "confidence": 0.5,
+            "summary": "Unable to analyze text"
+        }

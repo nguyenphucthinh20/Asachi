@@ -7,7 +7,7 @@ import pandas as pd
 import io
 import os
 from typing import Dict, Any, List, Optional
-from app.tools.box_tool import BoxAPI
+from app.tools.box_tool import BoxTool
 # Define the AgentState as designed
 class AgentState(TypedDict):
     """State of the Delta agent for ad performance analysis"""
@@ -26,7 +26,7 @@ memory = MemorySaver()
 
 class DeltaAgent:
     def __init__(self):
-        self.box_api = BoxAPI()
+        self.box_api = BoxTool()
         self.graph = self.build_graph()
 
     def build_graph(self) -> StateGraph:

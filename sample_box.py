@@ -1,6 +1,6 @@
 import os
 from boxsdk import Client, OAuth2, JWTAuth
-from boxsdk.exception import BoxAPIException
+from boxsdk.exception import BoxToolException
 from boxsdk.object.collaboration import CollaborationRole
 from dotenv import load_dotenv
 import pandas as pd
@@ -196,12 +196,12 @@ def move_item(client):
         finally:
             try:
                 subfolder1.delete()
-            except BoxAPIException:
+            except BoxToolException:
                 pass
     finally:
         try:
             a_file.delete()
-        except BoxAPIException:
+        except BoxToolException:
             pass
 
 def get_events(client):
@@ -225,7 +225,7 @@ def run_groups_example(client):
         _delete_leftover_group(original_groups, 'renamed_box_sdk_demo_group')
 
         new_group = client.create_group('box_sdk_demo_group')
-    except BoxAPIException as ex:
+    except BoxToolException as ex:
         if ex.status != 403:
             raise
         print('The authenticated user does not have permissions to manage groups. Skipping the test of this demo.')
