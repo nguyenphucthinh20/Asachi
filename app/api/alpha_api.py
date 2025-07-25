@@ -22,7 +22,7 @@ async def process_mention(event_data: dict, question: str) -> None:
         print(f"Processing mention: '{question}' in channel {channel_id}")
         
         response = agent.process_message(message=question, thread_id=channel_id)
-
+        print(f"Generated response: '{response}'")
         slack_client = WebClient(token=os.getenv("SLACK_TOKEN"))
         slack_client.chat_postMessage(
             channel=channel_id, 
