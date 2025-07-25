@@ -1,5 +1,5 @@
 
-from app.api import alpha_api
+from app.api import supervisor_api
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,7 @@ app = FastAPI(
 )
 
 # Thêm router trực tiếp vào app
-app.include_router(alpha_api.router, tags=["Monday chat"])
+app.include_router(supervisor_api.router, tags=["Supervisor chat"])
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
