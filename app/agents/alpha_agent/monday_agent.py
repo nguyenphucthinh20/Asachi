@@ -1,19 +1,22 @@
-from typing_extensions import TypedDict
+from enum import Enum
+from typing_extensions import TypedDict, Annotated
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph.message import add_messages
-from app.tools.monday_tool import MondayTaskManager
-import json
-from datetime import datetime
+from typing import Dict, Any, List, Optional
+from app.agents.base_agent import ChatbotAgent
+from app.agents.alpha_agent.constants import IntentType, ResponseType
+from app.tools.monday_tool import MondayTool
+from app.agents.alpha_agent.monday_generator import MondayGenerator
 from app.core.config import Config
-from app.provider.azure_openai import AzureOpenAIClient
-# from tools.monday_tool import MondayTaskManager
-from typing import Dict, Any, List, Optional, Annotated
+from app.core.exceptions import AgentException, ToolException, ProviderException
 from langgraph.checkpoint.memory import MemorySaver
 
 memory = MemorySaver()
-class AgentState(TypedDict):
-    """State of the chatbot agent"""
+
+
+class MondayAgentState(TypedDict):
+    """State of the Monday chatbot agent"""
     messages: Annotated[List[BaseMessage], add_messages]
     user_input: str
     intent_analysis: Dict[str, Any]
@@ -23,64 +26,85 @@ class AgentState(TypedDict):
     error: Optional[str]
     context: Dict[str, Any]
 
-class MondayChatbotAgent:
+
+class MondayChatbotAgent(ChatbotAgent):
+    """Monday.com chatbot agent for task management and queries"""
+    
     def __init__(self):
-        self.monday_client = MondayTaskManager(api_token=Config.MONDAY_API_TOKEN)
-        self.openai_client = AzureOpenAIClient()
-        self.graph = self.build_graph()
+        super().__init__("MondayChatbotAgent")
+        
+        self.monday_client = None
+        self.generator = None
+        
+        self._initialize_dependencies()
+    
+    def _initialize_dependencies(self) -> None:
+        """Initialize required dependencies"""
+        try:
+            if not Config.MONDAY_API_TOKEN:
+                raise AgentException("Monday API token is required")
+            
+            self.monday_client = MondayTool(api_token=Config.MONDAY_API_TOKEN)
+            
+            self.generator = MondayGenerator()
+            
+            self.logger.info("Dependencies initialized successfully")
+            
+        except Exception as e:
+            raise AgentException(f"Failed to initialize dependencies: {str(e)}")
     
     def build_graph(self) -> StateGraph:
-        workflow = StateGraph(AgentState)
-
-        #Create the state graph for the chatbot agent
-        workflow.add_node("analyze_input", self.analyze_input)
-        workflow.add_node("fetch_monday_data", self.fetch_monday_data)
-        workflow.add_node("generate_response", self.generate_response)
-        workflow.add_node("send_notification", self.send_notification)
-        workflow.add_node("handle_error", self.handle_error)
-
-        # Define the workflow edges
-        workflow.set_entry_point("analyze_input")
-
-        #from analyze input, decide next step based on intent
-        workflow.add_conditional_edges(
-            "analyze_input",
-            self.route_after_analysis,
-            {
-                "fetch_data": "fetch_monday_data",
-                "generate_response": "generate_response",
-                "error": "handle_error"
-            }
-        )
-
-        workflow.add_edge("fetch_monday_data", "generate_response")
-
-        workflow.add_conditional_edges(
-            "generate_response",
-            self.route_after_response,
-            {
-                "send_notification": "send_notification",
-                "end": END,
-            }
-        )
-        # From send_notification, end the workflow
-        workflow.add_edge("send_notification", END)
-        
-        workflow.add_edge("handle_error", END)
-        
-        return workflow.compile(checkpointer=memory)
-    def analyze_input(self, state: AgentState) -> AgentState:
+        """Build the agent's state graph"""
+        try:
+            workflow = StateGraph(MondayAgentState)
+    
+            workflow.add_node("analyze_input", self._analyze_input)
+            workflow.add_node("fetch_monday_data", self._fetch_monday_data)
+            workflow.add_node("generate_response", self._generate_response)
+            workflow.add_node("send_notification", self._send_notification)
+            workflow.add_node("handle_error", self._handle_error)
+            
+            workflow.set_entry_point("analyze_input")
+            
+            workflow.add_conditional_edges(
+                "analyze_input",
+                self._route_after_analysis,
+                {
+                    "fetch_data": "fetch_monday_data",
+                    "generate_response": "generate_response",
+                    "error": "handle_error"
+                }
+            )
+            
+            workflow.add_edge("fetch_monday_data", "generate_response")
+            
+            workflow.add_conditional_edges(
+                "generate_response",
+                self._route_after_response,
+                {
+                    "send_notification": "send_notification",
+                    "end": END,
+                }
+            )
+            
+            workflow.add_edge("send_notification", END)
+            workflow.add_edge("handle_error", END)
+            
+            return workflow.compile(checkpointer=self.memory)
+            
+        except Exception as e:
+            raise AgentException(f"Failed to build agent graph: {str(e)}")
+    
+    def _analyze_input(self, state: MondayAgentState) -> MondayAgentState:
         """Analyze user input to determine intent and extract entities"""
         try:
             user_input = state.get("user_input", "")
             if not user_input:
-                # Extract from messages if user_input is empty
                 messages = state.get("messages", [])
                 if messages and isinstance(messages[-1], HumanMessage):
                     user_input = messages[-1].content
             
-            # Analyze the message using OpenAI
-            analysis = self.openai_client.analyze_user_message(
+            analysis = self.generator.analyze_user_message(
                 user_input, 
                 state.get("context", {})
             )
@@ -88,108 +112,118 @@ class MondayChatbotAgent:
             state["intent_analysis"] = analysis
             state["user_input"] = user_input
             
-            print(f"Intent analysis: {analysis}")
+            self.logger.info(f"Intent analysis completed: {analysis.get('intent', 'unknown')}")
             
-        except Exception as e:
+        except (ProviderException, ToolException) as e:
             state["error"] = f"Error analyzing input: {str(e)}"
-            print(f"Error in _analyze_input: {e}")
+            self.logger.error(f"Error in _analyze_input: {e}")
+        except Exception as e:
+            state["error"] = f"Unexpected error analyzing input: {str(e)}"
+            self.logger.error(f"Unexpected error in _analyze_input: {e}")
         
         return state
-    def fetch_monday_data(self, state: AgentState) -> AgentState:
-        """Fetch relevant data from Monday.com based on intent (với MondayTaskManager mới)"""
+    
+    def _fetch_monday_data(self, state: MondayAgentState) -> MondayAgentState:
+        """Fetch relevant data from Monday.com based on intent"""
         try:
             analysis = state.get("intent_analysis", {})
             intent = analysis.get("intent", "")
             entities = analysis.get("entities", {})
-
+            
             monday_data = {}
-
             self.monday_client.fetch_board_data()
-
-            if intent in ["query_status", "deadline_inquiry"]:
+            
+            if intent in [IntentType.QUERY_STATUS.value, IntentType.DEADLINE_INQUIRY.value]:
                 overdue = self.monday_client.get_overdue_tasks()
                 upcoming = self.monday_client.get_upcoming_tasks()
                 summary = self.monday_client.get_task_summary()
-
+                
                 monday_data["overdue_tasks"] = overdue
                 monday_data["upcoming_tasks"] = upcoming
                 monday_data["summary"] = summary
-
+                
                 mentioned_tasks = entities.get("tasks", [])
                 if mentioned_tasks:
                     all_tasks = self.monday_client.get_all_task_details()
-                    matching = []
-
+                    matching_tasks = []
+                    
                     for task in all_tasks:
-                        for t_name in mentioned_tasks:
-                            if t_name.lower() in task["task"].lower():
-                                matching.append(task)
+                        for task_name in mentioned_tasks:
+                            if task_name.lower() in task["task"].lower():
+                                matching_tasks.append(task)
                                 break
-                    monday_data["matching_tasks"] = matching
-
-            elif intent == "update_task":
+                    
+                    monday_data["matching_tasks"] = matching_tasks
+            
+            elif intent == IntentType.UPDATE_TASK.value:
                 monday_data["update_capability"] = True
-
+            
             else:
-                state["error"] = f"Không hỗ trợ intent '{intent}' trong _fetch_monday_data."
-
+                self.logger.warning(f"Unsupported intent for data fetching: {intent}")
+            
             state["monday_data"] = monday_data
-
+            self.logger.info(f"Successfully fetched Monday data for intent: {intent}")
+            
+        except ToolException as e:
+            state["error"] = f"Error fetching Monday data: {str(e)}"
+            self.logger.error(f"Error in _fetch_monday_data: {e}")
         except Exception as e:
-            state["error"] = f"Lỗi khi lấy dữ liệu từ Monday: {str(e)}"
-            print(f"Error in _fetch_monday_data: {e}")
-
+            state["error"] = f"Unexpected error fetching Monday data: {str(e)}"
+            self.logger.error(f"Unexpected error in _fetch_monday_data: {e}")
+        
         return state
-    def generate_response(self, state: AgentState) -> AgentState:
-        """Generate response using OpenAI based on analysis and Monday data"""
+    
+    def _generate_response(self, state: MondayAgentState) -> MondayAgentState:
+        """Generate response using the response generator"""
         try:
             user_input = state.get("user_input", "")
             analysis = state.get("intent_analysis", {})
             monday_data = state.get("monday_data", {})
-            
-            # Generate response using OpenAI
-            response = self.openai_client.generate_response(
+            response = self.generator.generate_monday_response(
                 user_input, 
                 analysis, 
                 monday_data
             )
             
             state["response"] = response
-            
-            # Add AI message to conversation
             messages = state.get("messages", [])
             messages.append(AIMessage(content=response))
             state["messages"] = messages
             
-        except Exception as e:
+            self.logger.info("Response generated successfully")
+            
+        except ProviderException as e:
             state["error"] = f"Error generating response: {str(e)}"
-            print(f"Error in _generate_response: {e}")
+            self.logger.error(f"Error in _generate_response: {e}")
+        except Exception as e:
+            state["error"] = f"Unexpected error generating response: {str(e)}"
+            self.logger.error(f"Unexpected error in _generate_response: {e}")
         
-        return state    
-    def send_notification(self, state: AgentState) -> AgentState:
+        return state
+    
+    def _send_notification(self, state: MondayAgentState) -> MondayAgentState:
         """Send notification if required"""
         try:
             analysis = state.get("intent_analysis", {})
             response_type = analysis.get("response_type", "")
             
-            if response_type == "actionable" and Config.ENABLE_MONDAY_UPDATES:
-                # This is where you would implement sending updates to Monday.com
-                # For now, we'll just log the action
+            if response_type == ResponseType.ACTIONABLE.value and Config.ENABLE_MONDAY_UPDATES:
                 state["action_taken"] = "notification_sent"
-                print("Notification would be sent to Monday.com")
+                self.logger.info("Notification would be sent to Monday.com")
             else:
                 state["action_taken"] = "no_notification_needed"
             
         except Exception as e:
             state["error"] = f"Error sending notification: {str(e)}"
-            print(f"Error in _send_notification: {e}")
+            self.logger.error(f"Error in _send_notification: {e}")
         
         return state
-    def handle_error(self, state: AgentState) -> AgentState:
+    
+    def _handle_error(self, state: MondayAgentState) -> MondayAgentState:
         """Handle errors gracefully"""
         error = state.get("error", "Unknown error")
         
-        error_response = "Xin lỗi, tôi gặp sự cố khi xử lý yêu cầu của bạn. Vui lòng thử lại sau hoặc liên hệ với quản trị viên."
+        error_response = "I apologize, but I encountered an issue processing your request. Please try again later or contact an administrator."
         
         state["response"] = error_response
         
@@ -197,10 +231,12 @@ class MondayChatbotAgent:
         messages.append(AIMessage(content=error_response))
         state["messages"] = messages
         
-        print(f"Error handled: {error}")
+        self.logger.error(f"Error handled: {error}")
         
         return state
-    def route_after_analysis(self, state: AgentState) -> str:
+    
+    def _route_after_analysis(self, 
+                              state: MondayAgentState) -> str:
         """Route to next node after input analysis"""
         if state.get("error"):
             return "error"
@@ -208,13 +244,13 @@ class MondayChatbotAgent:
         analysis = state.get("intent_analysis", {})
         intent = analysis.get("intent", "")
         
-        # Determine if we need to fetch Monday data
-        if intent in ["query_status", "deadline_inquiry", "update_task"]:
+        if intent in [IntentType.QUERY_STATUS.value, IntentType.DEADLINE_INQUIRY.value, IntentType.UPDATE_TASK.value]:
             return "fetch_data"
         else:
             return "generate_response"
     
-    def route_after_response(self, state: AgentState) -> str:
+    def _route_after_response(self, 
+                              state: MondayAgentState) -> str:
         """Route to next node after generating response"""
         if state.get("error"):
             return "end"
@@ -222,28 +258,39 @@ class MondayChatbotAgent:
         analysis = state.get("intent_analysis", {})
         response_type = analysis.get("response_type", "")
         
-        if response_type == "actionable":
+        if response_type == ResponseType.ACTIONABLE.value:
             return "send_notification"
         else:
             return "end"
-    def process_message(self, message: str,thread_id: str, context: Dict[str, Any] = None) -> str:
+    
+    def process_message(self, 
+                        message: str, 
+                        thread_id: str, 
+                        context: Optional[Dict[str, Any]] = None) -> str:
         """Process a user message and return response"""
-        config = {"configurable": {"thread_id": thread_id}}
-        initial_state = {
-            "messages": [HumanMessage(content=message)],
-            "user_input": message,
-            "intent_analysis": {},
-            "monday_data": {},
-            "response": "",
-            "action_taken": "",
-            "error": None,
-            "context": context or {}
-        }
-        
-        # Run the graph
-        final_state = self.graph.invoke(initial_state, 
-                                        config=config,
-                                        )
-                                        
-        print("-----------------------",final_state)
-        return final_state.get("response", "Xin lỗi, tôi không thể xử lý yêu cầu của bạn.")
+        try:
+            self.ensure_initialized()
+
+            config = {"configurable": {"thread_id": thread_id}}
+            
+            initial_state = {
+                "messages": [HumanMessage(content=message)],
+                "user_input": message,
+                "intent_analysis": {},
+                "monday_data": {},
+                "response": "",
+                "action_taken": "",
+                "error": None,
+                "context": context or {}
+            }
+            
+            final_state = self.graph.invoke(initial_state, config=config)
+            
+            response = final_state.get("response", "I apologize, but I couldn't process your request.")
+            
+            self.logger.info(f"Message processed successfully for thread: {thread_id}")
+            return response
+            
+        except Exception as e:
+            self.logger.error(f"Failed to process message: {str(e)}")
+            return "I apologize, but I encountered an error processing your request. Please try again later."

@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.agents.alpha_agent.monday_agent import MondayChatbotAgent
+from app.agents.orchestrator_agent.supervisor import SupervisorAgent
 from slack_sdk import WebClient
 from slack_bolt.adapter.fastapi import SlackRequestHandler
 from slack_bolt import App
@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 import os
 
-agent = MondayChatbotAgent()
+agent = SupervisorAgent()
 
 router = APIRouter()
 
@@ -16,28 +16,29 @@ slack_app = App(
 )
 handler = SlackRequestHandler(slack_app)
 
-async def process_mention(event_data: dict, 
-                          question: str) -> None:
+async def process_mention(event_data: dict, question: str) -> None:
     try:
         channel_id = event_data["event"]["channel"]
-        print(f"Processing mention: '{question}' in channel {channel_id}")
+        print(f"Processing mention: \'{question}\' in channel {channel_id}")
         
-        response = agent.process_message(message=question, thread_id=channel_id)
-        print(f"Generated response: '{response}'")
+        response = agent.process_message(question=question, thread_id=str(channel_id))
+        print(f"Generated response: \'{response}\'")
         slack_client = WebClient(token=os.getenv("SLACK_TOKEN"))
         slack_client.chat_postMessage(
             channel=channel_id, 
             text=response, 
         )
-        print(f"Replied to channel {channel_id} with: '{response}'")
+        print(f"Replied to channel {channel_id} with: \'{response}\'")
     except Exception as e:
         print(f"Error processing slack bot mention: {e}")
 
 
 @router.post("/slack/events")
-async def slack_events_endpoint(req: Request, 
-                                background_tasks: BackgroundTasks):
+async def slack_events_endpoint(req: Request, background_tasks: BackgroundTasks):
     body = await req.json()
+
+    print(f"++++++++++++++Received Slack event: {body}")
+
     if body.get("type") == "url_verification":
         return JSONResponse(content={"challenge": body.get("challenge")})
 
@@ -60,3 +61,4 @@ async def slack_events_endpoint(req: Request,
             background_tasks.add_task(process_mention, body, question)
 
     return JSONResponse(content={"status": "ok"})
+

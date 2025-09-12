@@ -1,5 +1,6 @@
 monday-api-python-sdk
 slack_sdk
+slack-bolt
 python-dotenv
 langgraph
 fastapi
@@ -9,3 +10,4 @@ boxsdk
 pandas
 pydantic
 python-multipart
+openai
