@@ -41,7 +41,7 @@ class MondayTool(BaseAPITool):
         self.logger = Logger.get_logger(self.__class__.__name__)
         self._board_data = None
         self._last_fetch_time = None
-        self._cache_duration = timedelta(minutes=5)  # Cache for 5 minutes
+        self._cache_duration = timedelta(minutes=5) 
     
     def _build_headers(self) -> Dict[str, str]:
         """Build API headers for Monday.com"""
@@ -85,12 +85,12 @@ class MondayTool(BaseAPITool):
         self._last_fetch_time = None
         self.logger.info("Monday.com tool cleaned up")
     
-    def fetch_board_data(self, force_refresh: bool = False) -> Dict[str, Any]:
+    def fetch_board_data(self, 
+                         force_refresh: bool = False) -> Dict[str, Any]:
         """Fetch board data from Monday.com API with caching"""
         try:
             current_time = datetime.now()
             
-            # Use cached data if available and not expired
             if (not force_refresh and self._board_data and self._last_fetch_time and 
                 current_time - self._last_fetch_time < self._cache_duration):
                 return self._board_data
@@ -113,7 +113,8 @@ class MondayTool(BaseAPITool):
             self.logger.error(f"Failed to fetch board data: {str(e)}")
             raise ToolException(f"Failed to fetch board data: {str(e)}")
     
-    def get_overdue_tasks(self, overdue_days: int = DEFAULT_OVERDUE_DAYS) -> List[Dict[str, Any]]:
+    def get_overdue_tasks(self, 
+                          overdue_days: int = DEFAULT_OVERDUE_DAYS) -> List[Dict[str, Any]]:
         """Get list of overdue tasks"""
         try:
             
@@ -234,7 +235,6 @@ class MondayTool(BaseAPITool):
                     date_str = None
                     status = None
                     
-                    # Extract task information
                     for col in item["column_values"]:
                         if col["id"] == MondayColumnIds.PERSON:
                             person = col["text"]
@@ -243,17 +243,14 @@ class MondayTool(BaseAPITool):
                         elif col["id"] == MondayColumnIds.STATUS:
                             status = col["text"]
                     
-                    # Count unique people
                     if person:
                         people_set.add(person)
-                    
-                    # Count overdue and upcoming tasks
+
                     if date_str:
                         try:
                             item_date = datetime.strptime(date_str, "%Y-%m-%d").date()
                             days_diff = (today - item_date).days
-                            
-                            # Only count incomplete tasks
+
                             if status not in [TaskStatus.APPROVED.value, TaskStatus.DONE.value]:
                                 if days_diff > overdue_days:
                                     overdue_count += 1

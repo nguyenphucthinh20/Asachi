@@ -16,7 +16,8 @@ slack_app = App(
 )
 handler = SlackRequestHandler(slack_app)
 
-async def process_mention(event_data: dict, question: str) -> None:
+async def process_mention(event_data: dict, 
+                          question: str) -> None:
     try:
         channel_id = event_data["event"]["channel"]
         print(f"Processing mention: '{question}' in channel {channel_id}")
@@ -34,18 +35,15 @@ async def process_mention(event_data: dict, question: str) -> None:
 
 
 @router.post("/slack/events")
-async def slack_events_endpoint(req: Request, background_tasks: BackgroundTasks):
+async def slack_events_endpoint(req: Request, 
+                                background_tasks: BackgroundTasks):
     body = await req.json()
-
-    print(f"++++++++++++++Received Slack event: {body}")
-
     if body.get("type") == "url_verification":
         return JSONResponse(content={"challenge": body.get("challenge")})
 
     if body.get("type") == "event_callback":
         event = body.get("event", {})
 
-        # Check for retry header
         if 'x-slack-retry-num' in req.headers:
             print(f"Detected a retry from Slack (reason: {req.headers.get('x-slack-retry-reason')}). Ignoring.")
             return JSONResponse(content={"status": "ok, retry ignored"})

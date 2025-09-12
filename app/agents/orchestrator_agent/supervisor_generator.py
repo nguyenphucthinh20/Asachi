@@ -11,25 +11,25 @@ class SupervisorGenerator:
             "next_agent": {"type": "string", "enum": ["alpha", "beta", "general"]}
         }
         prompt = f"""
-You are a supervisor agent. You need to decide which sub-agent (alpha or beta) should handle the user's request.
+        You are a supervisor agent. You need to decide which sub-agent (alpha or beta) should handle the user's request.
 
-Alpha agent handles:
-- Project progress
-- Deadline tracking
-- Task delay detection
-- Task assignments and team member workloads
-- All queries related to Monday.com or project/task management
+        Alpha agent handles:
+        - Project progress
+        - Deadline tracking
+        - Task delay detection
+        - Task assignments and team member workloads
+        - All queries related to Monday.com or project/task management
 
-Beta agent handles:
-- Any question involving uploaded Excel files, spreadsheets, CSVs, or image-based tables
+        Beta agent handles:
+        - Any question involving uploaded Excel files, spreadsheets, CSVs, or image-based tables
 
-Respond with:
-- 'alpha' if the request is about deadlines, project progress, team task status, or uses Monday.com
-- 'beta' if the request is about analyzing data in Excel, CSV, or table/image files
-- 'general' if it's not related to either
+        Respond with:
+        - 'alpha' if the request is about deadlines, project progress, team task status, or uses Monday.com
+        - 'beta' if the request is about analyzing data in Excel, CSV, or table/image files
+        - 'general' if it's not related to either
 
-Here is the user's question: {question}
-"""
+        Here is the user's question: {question}
+        """
         try:
             response = self.llm_client.generate_structured_response(
                 prompt=prompt,

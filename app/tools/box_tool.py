@@ -9,9 +9,9 @@ from app.core.config import Config
 class ToolBox:
     def __init__(self):
         load_dotenv()
-        self.client_id = "ecs5dull9x2f28kh8j3b3f7cyam7v2un"
-        self.client_secret = "s7lhQGVM29TRKyd4KginagPFHnsUCnR2"
-        self.developer_token = "tiWbV6QysU1keagdFUPt4v6vGLL887qQ"
+        self.client_id = Config.BOX_CLIENT_ID
+        self.client_secret = Config.BOX_CLIENT_SECRET
+        self.developer_token = Config.BOX_DEVELOPER_TOKEN
         self.client = self._authenticate()
         self.llm = AzureOpenAI(
             azure_endpoint=Config.AZURE_OPENAI_ENDPOINT,
@@ -55,7 +55,6 @@ class ToolBox:
                 break
         
         if file_id:
-            # ✅ Sử dụng file_id thực tế thay vì ID cố định
             box_file = self.client.file(file_id).get()
             print(f'Analyzing file: {box_file.name}')
             file_content = box_file.content()
@@ -67,7 +66,6 @@ class ToolBox:
             return None
     def query_dataframe(self, df, question: str):
         try:
-            # Ensure all column names are strings before passing to pandasai
             df_copy = df.copy()
             df_copy.columns = df_copy.columns.astype(str)
             
@@ -77,5 +75,4 @@ class ToolBox:
         except Exception as e:
             print(f"Error in query_dataframe: {e}")
             return "Tôi chưa rõ câu hỏi của bạn, vui lòng hỏi chi tiết hơn."
-# Sử dụng
 box_api = ToolBox()

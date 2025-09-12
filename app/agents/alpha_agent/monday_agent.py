@@ -33,7 +33,6 @@ class MondayChatbotAgent(ChatbotAgent):
     def __init__(self):
         super().__init__("MondayChatbotAgent")
         
-        # Initialize tools and providers
         self.monday_client = None
         self.generator = None
         
@@ -42,13 +41,11 @@ class MondayChatbotAgent(ChatbotAgent):
     def _initialize_dependencies(self) -> None:
         """Initialize required dependencies"""
         try:
-            # Initialize Monday.com client
             if not Config.MONDAY_API_TOKEN:
                 raise AgentException("Monday API token is required")
             
             self.monday_client = MondayTool(api_token=Config.MONDAY_API_TOKEN)
             
-            # Initialize response generator
             self.generator = MondayGenerator()
             
             self.logger.info("Dependencies initialized successfully")
@@ -60,18 +57,15 @@ class MondayChatbotAgent(ChatbotAgent):
         """Build the agent's state graph"""
         try:
             workflow = StateGraph(MondayAgentState)
-            
-            # Add nodes
+    
             workflow.add_node("analyze_input", self._analyze_input)
             workflow.add_node("fetch_monday_data", self._fetch_monday_data)
             workflow.add_node("generate_response", self._generate_response)
             workflow.add_node("send_notification", self._send_notification)
             workflow.add_node("handle_error", self._handle_error)
             
-            # Define workflow edges
             workflow.set_entry_point("analyze_input")
             
-            # Conditional routing after analysis
             workflow.add_conditional_edges(
                 "analyze_input",
                 self._route_after_analysis,
@@ -106,12 +100,10 @@ class MondayChatbotAgent(ChatbotAgent):
         try:
             user_input = state.get("user_input", "")
             if not user_input:
-                # Extract from messages if user_input is empty
                 messages = state.get("messages", [])
                 if messages and isinstance(messages[-1], HumanMessage):
                     user_input = messages[-1].content
             
-            # Analyze the message using the response generator
             analysis = self.generator.analyze_user_message(
                 user_input, 
                 state.get("context", {})
@@ -139,12 +131,9 @@ class MondayChatbotAgent(ChatbotAgent):
             entities = analysis.get("entities", {})
             
             monday_data = {}
-            
-            # Fetch board data
             self.monday_client.fetch_board_data()
             
             if intent in [IntentType.QUERY_STATUS.value, IntentType.DEADLINE_INQUIRY.value]:
-                # Get task summaries
                 overdue = self.monday_client.get_overdue_tasks()
                 upcoming = self.monday_client.get_upcoming_tasks()
                 summary = self.monday_client.get_task_summary()
@@ -153,7 +142,6 @@ class MondayChatbotAgent(ChatbotAgent):
                 monday_data["upcoming_tasks"] = upcoming
                 monday_data["summary"] = summary
                 
-                # Find specific tasks mentioned in the query
                 mentioned_tasks = entities.get("tasks", [])
                 if mentioned_tasks:
                     all_tasks = self.monday_client.get_all_task_details()
@@ -191,8 +179,6 @@ class MondayChatbotAgent(ChatbotAgent):
             user_input = state.get("user_input", "")
             analysis = state.get("intent_analysis", {})
             monday_data = state.get("monday_data", {})
-            
-            # Generate response using the response generator
             response = self.generator.generate_monday_response(
                 user_input, 
                 analysis, 
@@ -200,8 +186,6 @@ class MondayChatbotAgent(ChatbotAgent):
             )
             
             state["response"] = response
-            
-            # Add AI message to conversation
             messages = state.get("messages", [])
             messages.append(AIMessage(content=response))
             state["messages"] = messages
@@ -224,8 +208,6 @@ class MondayChatbotAgent(ChatbotAgent):
             response_type = analysis.get("response_type", "")
             
             if response_type == ResponseType.ACTIONABLE.value and Config.ENABLE_MONDAY_UPDATES:
-                # This is where you would implement sending updates to Monday.com
-                # For now, we'll just log the action
                 state["action_taken"] = "notification_sent"
                 self.logger.info("Notification would be sent to Monday.com")
             else:
@@ -253,7 +235,8 @@ class MondayChatbotAgent(ChatbotAgent):
         
         return state
     
-    def _route_after_analysis(self, state: MondayAgentState) -> str:
+    def _route_after_analysis(self, 
+                              state: MondayAgentState) -> str:
         """Route to next node after input analysis"""
         if state.get("error"):
             return "error"
@@ -261,13 +244,13 @@ class MondayChatbotAgent(ChatbotAgent):
         analysis = state.get("intent_analysis", {})
         intent = analysis.get("intent", "")
         
-        # Determine if we need to fetch Monday data
         if intent in [IntentType.QUERY_STATUS.value, IntentType.DEADLINE_INQUIRY.value, IntentType.UPDATE_TASK.value]:
             return "fetch_data"
         else:
             return "generate_response"
     
-    def _route_after_response(self, state: MondayAgentState) -> str:
+    def _route_after_response(self, 
+                              state: MondayAgentState) -> str:
         """Route to next node after generating response"""
         if state.get("error"):
             return "end"
@@ -280,8 +263,10 @@ class MondayChatbotAgent(ChatbotAgent):
         else:
             return "end"
     
-    def process_message(self, message: str, thread_id: str, 
-                       context: Optional[Dict[str, Any]] = None) -> str:
+    def process_message(self, 
+                        message: str, 
+                        thread_id: str, 
+                        context: Optional[Dict[str, Any]] = None) -> str:
         """Process a user message and return response"""
         try:
             self.ensure_initialized()
@@ -299,7 +284,6 @@ class MondayChatbotAgent(ChatbotAgent):
                 "context": context or {}
             }
             
-            # Run the graph
             final_state = self.graph.invoke(initial_state, config=config)
             
             response = final_state.get("response", "I apologize, but I couldn't process your request.")

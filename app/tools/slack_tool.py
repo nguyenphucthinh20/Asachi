@@ -45,23 +45,16 @@ class SlackTool(BaseTool):
     def initialize(self) -> None:
         """Initialize the Slack client and app"""
         try:
-            # Initialize WebClient
             self.client = WebClient(token=self.token)
-            
-            # Initialize Bolt app
             self.app = App(token=self.token, signing_secret=self.signing_secret)
             self.handler = SlackRequestHandler(self.app)
-            
-            # Test the connection
             auth_response = self.client.auth_test()
-            
             self.logger.info(f"Slack tool initialized successfully for team: {auth_response['team']}")
             
         except SlackApiError as e:
             raise ToolException(f"Failed to initialize Slack client: {e.response['error']}")
         except Exception as e:
             raise ToolException(f"Failed to initialize Slack tool: {str(e)}")
-    
     def is_healthy(self) -> bool:
         """Check if the Slack client is healthy"""
         try:
@@ -90,7 +83,6 @@ class SlackTool(BaseTool):
             Validator.validate_non_empty_string(channel, "channel")
             Validator.validate_non_empty_string(text, "text")
             
-            # Sanitize message content
             sanitized_text = Validator.sanitize_user_input(text)
             
             response = self.client.chat_postMessage(
@@ -175,8 +167,6 @@ class SlackTool(BaseTool):
             
             mention = f"<@{self.bot_user_id}>"
             cleaned_text = text.replace(mention, "").strip()
-            
-            # Additional cleaning for Slack formatting
             cleaned_text = Validator.sanitize_user_input(cleaned_text)
             
             self.logger.debug(f"Extracted mention text: '{cleaned_text}' from: '{text}'")
@@ -207,7 +197,6 @@ class SlackTool(BaseTool):
             
         except Exception as e:
             self.logger.error(f"Failed to format message blocks: {str(e)}")
-            # Return simple text block as fallback
             return [
                 {
                     "type": "section",
@@ -232,11 +221,7 @@ class SlackTool(BaseTool):
             if not channel_id:
                 self.logger.warning("No channel ID in event data")
                 return
-            
-            # Extract clean text from mention
             clean_text = self.extract_mention_text(text)
-            
-            # Process the message using the provided handler
             if response_handler:
                 response_handler(channel_id, clean_text)
             
@@ -246,5 +231,4 @@ class SlackTool(BaseTool):
             self.logger.error(f"Failed to handle app mention: {str(e)}")
             raise ToolException(f"Failed to handle app mention: {str(e)}")
 
-# Global instance for backward compatibility
 slack_tool = SlackTool()
